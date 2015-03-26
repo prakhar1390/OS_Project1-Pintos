@@ -24,7 +24,7 @@
 
 #define LOAD_AVG_DEFAULT 0
 
-#define DEPTH_LIMIT 8
+#define DEPTH_LIMIT 9
 
 /* Random value for struct thread's `magic' member.
    Used to detect stack overflow.  See the big comment at the top
@@ -648,10 +648,82 @@ allocate_tid (void)
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
 /*---------------------------user defined funcitons -----------------------------*/
 
-bool comparePriority (const struct list_elem *a,
-		   const struct list_elem *b,
-		   void *aux UNUSED)
+
+void priorityMLFQ (struct thread *t)
 {
+    if (t == idle_thread)
+    {
+        return;
+    }
+    int term1 = int_to_fp(PRI_MAX);
+    int term2 = div_mixed( t->recent_cpu, 4);
+    int term3 = 2*t->nice;
+    term1 = sub_fp(term1, term2);
+    term1 = sub_mixed(term1, term3);
+    t->priority = fp_to_int(term1);
+    if (t->priority <= PRI_MIN)
+    {
+        t->priority = PRI_MIN;
+    }
+    if (t->priority => PRI_MAX)
+    {
+        t->priority = PRI_MAX;
+    }
+}
+
+void recentCpuMLFQ (struct thread *t)
+{
+    if (t == idle_thread)
+    {
+        return;
+    }
+    int term1 = mult_mixed(load_avg, 2);
+    term1 = div_fp(term1, add_mixed(term1, 1) );
+    term1 = mult_fp(term1, t->recent_cpu);
+    t->recent_cpu = add_mixed(term1, t->nice);
+}
+
+void loadAvgMLFQ (void)
+{
+    int term2 = list_size(&ready_list);
+    if (thread_current() != idle_thread)
+    {
+        term2++;
+    }
+    int term1 = div_mixed(int_to_fp(59), 60);
+    term1 = mult_fp(term1, load_avg);
+    term2 = div_mixed(int_to_fp(term2), 60);
+    load_avg = add_fp(term1, term2);
+    ASSERT (load_avg >= 0)
+}
+
+void incrementMLFQ (void)
+{
+    if (thread_current() == idle_thread)
+    {
+        return;
+    }
+    thread_current()->recent_cpu = add_mixed(
+                                             thread_current()->recent_cpu, 1);
+}
+
+void recalcMLFQ (void)
+{
+    struct list_elem *e;
+    for (e = list_begin(&all_list); e != list_end(&all_list);
+         e = list_next(e))
+    {
+        struct thread *t = list_entry(e, struct thread, allelem);
+        recentCpuMLFQ(t);
+        priorityMLFQ(t);
+    }
+}
+
+//-------------------------------------------------------------------------------------------//
+
+bool comparePriority (const struct list_elem *a,const struct list_elem *b,void *aux UNUSED)
+{
+    // compare the prioirty of the two threads and return if the prioirity of thread a is greater than the second one
   struct thread *th_a = list_entry(a, struct thread, elem);
   struct thread *th_b = list_entry(b, struct thread, elem);
   if (th_a->priority > th_b->priority)
@@ -661,10 +733,10 @@ bool comparePriority (const struct list_elem *a,
   return false;
 }
 
-bool compareTicks (const struct list_elem *a,
-		const struct list_elem *b,
-		void *aux UNUSED)
+
+bool compareTicks (const struct list_elem *a,const struct list_elem *b,void *aux UNUSED)
 {
+    // compare the prioirty of the two threads ticks and return if the ticks of thread a is greater than the second one
   struct thread *th_a = list_entry(a, struct thread, elem);
   struct thread *th_b = list_entry(b, struct thread, elem);
   if (th_a->ticks < th_b->ticks)
@@ -674,98 +746,35 @@ bool compareTicks (const struct list_elem *a,
   return false;
 }
 
+// check here if the prioirty of the thread is same/greater than the first one is ready queue
 void maxPriorityCheck (void)
 {
-  if ( list_empty(&ready_list) )
+    int temp_pri =thread_current()->priority;
+    struct thread *t = list_entry(list_front(&ready_list),struct thread, elem);
+    int ready_pri =t->priority;
+    
+    if ( list_empty(&ready_list) ) // return if no thread to run, that is only single thread running
     {
-      return;
+        printf("no thread to run in ready list\n");
+        return;
     }
-  struct thread *t = list_entry(list_front(&ready_list),
-				struct thread, elem);
-  if (intr_context())
+    
+    
+    if (intr_context())
     {
       thread_ticks++;
-      if ( thread_current()->priority < t->priority ||
-	   (thread_ticks >= TIME_SLICE &&
-	    thread_current()->priority == t->priority) )
-	{
+      if ( temp_pri < ready_pri || (thread_ticks >= TIME_SLICE && temp_pri == ready_pri) )
+      {
 	  intr_yield_on_return();
-	}
+      }
       return;
     }
-  if (thread_current()->priority < t->priority)
+    
+    
+    
+    if (temp_pri < ready_pri)
     {
       thread_yield();
-    }
-}
-
-void priorityMLFQ (struct thread *t)
-{
-  if (t == idle_thread)
-    {
-      return;
-    }
-  int term1 = int_to_fp(PRI_MAX);
-  int term2 = div_mixed( t->recent_cpu, 4);
-  int term3 = 2*t->nice;
-  term1 = sub_fp(term1, term2);
-  term1 = sub_mixed(term1, term3);
-  t->priority = fp_to_int(term1);
-  if (t->priority <= PRI_MIN)
-    {
-      t->priority = PRI_MIN;
-    }
-  if (t->priority => PRI_MAX)
-    {
-      t->priority = PRI_MAX;
-    }
-}
-
-void recentCpuMLFQ (struct thread *t)
-{
-  if (t == idle_thread)
-    {
-      return;
-    }
-  int term1 = mult_mixed(load_avg, 2);
-  term1 = div_fp(term1, add_mixed(term1, 1) );
-  term1 = mult_fp(term1, t->recent_cpu);
-  t->recent_cpu = add_mixed(term1, t->nice);
-}
-
-void loadAvgMLFQ (void)
-{
-  int term2 = list_size(&ready_list);
-  if (thread_current() != idle_thread)
-    {
-      term2++;
-    }
-  int term1 = div_mixed(int_to_fp(59), 60);
-  term1 = mult_fp(term1, load_avg);
-  term2 = div_mixed(int_to_fp(term2), 60);
-  load_avg = add_fp(term1, term2);
-  ASSERT (load_avg >= 0)
-}
-
-void incrementMLFQ (void)
-{
-  if (thread_current() == idle_thread)
-    {
-      return;
-    }
-  thread_current()->recent_cpu = add_mixed(
-				   thread_current()->recent_cpu, 1);
-}
-
-void recalcMLFQ (void)
-{
-  struct list_elem *e;
-  for (e = list_begin(&all_list); e != list_end(&all_list);
-       e = list_next(e))
-    {
-      struct thread *t = list_entry(e, struct thread, allelem);
-      recentCpuMLFQ(t);
-      priorityMLFQ(t);
     }
 }
 
@@ -812,16 +821,16 @@ void threadUnlock(struct lock *lock)
 
 void updatePriority (void)
 {
-  struct thread *t = thread_current();
-  t->priority = t->init_priority;
-  if (list_empty(&t->donations))
+  struct thread *th = thread_current();
+  th->priority = th->init_priority;
+  if (list_empty(&th->donations))
     {
       return;
     }
-  struct thread *s = list_entry(list_front(&t->donations),
+  struct thread *s = list_entry(list_front(&th->donations),
 				struct thread, donation_elem);
-  if (s->priority >= t->priority)
+  if (s->priority >= th->priority)
     {
-      t->priority = s->priority;
+      th->priority = s->priority;
     }
 }
