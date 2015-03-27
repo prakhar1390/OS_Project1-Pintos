@@ -665,7 +665,7 @@ void priorityMLFQ (struct thread *t)
     {
         t->priority = PRI_MIN;
     }
-    if (t->priority => PRI_MAX)
+    if (t->priority >= PRI_MAX)
     {
         t->priority = PRI_MAX;
     }
@@ -703,8 +703,7 @@ void incrementMLFQ (void)
     {
         return;
     }
-    thread_current()->recent_cpu = add_mixed(
-                                             thread_current()->recent_cpu, 1);
+    thread_current()->recent_cpu = add_mixed(thread_current()->recent_cpu, 1);
 }
 
 void recalcMLFQ (void)
@@ -776,6 +775,8 @@ void maxPriorityCheck (void)
     {
       thread_yield();
     }
+    
+    // yeild so that next thread can run
 }
 
 void donate_priority (void)
@@ -798,7 +799,7 @@ void donate_priority (void)
 	  return;
 	}
       lk->holder->priority = cur->priority;//change the lock holder
-      lk = lk->holder->wait_on_lock;
+      lk = lk->holder->wait_on_lock; // change the lock to the new waiting locks
     }
 }
 
@@ -807,6 +808,8 @@ void threadUnlock(struct lock *lock)
 {
   struct list_elem *lea = list_begin(&thread_current()->donations);
   struct list_elem *next;
+    //iterate though the list of threads that are locked and remove the theard for which the lock is passed
+    // cehck for the lock in the list of the donated threads
   while (lea != list_end(&thread_current()->donations))
     {
       struct thread *th = list_entry(lea, struct thread, donation_elem);
